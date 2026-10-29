@@ -243,29 +243,36 @@ def decode(
         raise _fail("no clips match the filters")
 
     gpu = _gpu_name(device if backend.hardware else "cpu")
-    summary, sweep = [], []
+    summary = []
     for clip in clips:
         console.print(f"[bold]{clip.name}[/]")
-        capacity, steps = measure_capacity(
-            backend,
-            clip,
-            clips_dir,
-            backend_name=backend_name,
-            gpu_name=gpu,
-            max_streams=max_streams,
-            warmup_s=warmup,
-            window_s=window,
-            arch=arch,
-            nvdec=nvdec,  # type: ignore[arg-type]
-            on_step=lambda row: console.print(
-                f"  {row.streams:>3} streams  {row.aggregate_fps:9.1f} fps total  "
-                f"{row.per_stream_fps:8.1f} fps each"
-                + (f"  NVDEC {row.decoder_util:.0f}%" if row.decoder_util is not None else "")
-            ),
-        )
+        try:
+            capacity, steps = measure_capacity(
+                backend,
+                clip,
+                clips_dir,
+                backend_name=backend_name,
+                gpu_name=gpu,
+                max_streams=max_streams,
+                warmup_s=warmup,
+                window_s=window,
+                arch=arch,
+                nvdec=nvdec,  # type: ignore[arg-type]
+                on_step=lambda row: console.print(
+                    f"  {row.streams:>3} streams  {row.aggregate_fps:9.1f} fps total  "
+                    f"{row.per_stream_fps:8.1f} fps each"
+                    + (f"  NVDEC {row.decoder_util:.0f}%" if row.decoder_util is not None else "")
+                ),
+            )
+        except RuntimeError as exc:
+            console.print(f"  [red]failed:[/] {exc}")
+            continue
         summary.append(capacity)
-        sweep.extend(steps)
+        write_csv(steps, out_dir / "decode_sweep.csv")  # save as we go: a full run is long
+        write_csv([capacity], out_dir / "decode.csv")
 
+    if not summary:
+        raise _fail("nothing measured")
     print_table(
         summary,
         [
@@ -283,8 +290,7 @@ def decode(
         ],
         title=f"Decoder capacity, {gpu}, {backend_name}",
     )
-    write_csv(sweep, out_dir / "decode_sweep.csv")
-    console.print(f"saved to {write_csv(summary, out_dir / 'decode.csv')}")
+    console.print(f"saved to {out_dir / 'decode.csv'}")
 
 
 @app.command()
