@@ -220,8 +220,8 @@ def decode(
         raise _fail(f"--arch must be one of {', '.join(NVDEC_FPS)}")
     try:
         backend = DECODE_BACKENDS.create(backend_name, device=device)
-        backend.check()
         clips = load_manifest(clips_dir)
+        backend.check()
     except (UnknownBackendError, DecodeUnavailable) as exc:
         raise _fail(str(exc)) from exc
     except FileNotFoundError:
