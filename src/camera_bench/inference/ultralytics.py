@@ -166,6 +166,8 @@ class UltralyticsBackend(InferenceBackend):
             raise ValueError(f"format must be one of {self.formats}, got {config.format!r}")
         if config.format == "engine" and self.device == "cpu":
             raise ValueError("TensorRT engines need a GPU")
+        if config.precision == "fp16" and self.device == "cpu":
+            raise ValueError("fp16 needs a GPU; on CPU pass --precision fp32")
         from ultralytics import YOLO
 
         weights = download_weights(config.model, self.workdir)

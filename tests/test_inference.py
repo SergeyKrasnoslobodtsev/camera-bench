@@ -63,6 +63,15 @@ def test_onnxruntime_rejects_unknown_provider():
         INFERENCE_BACKENDS.create("onnxruntime", provider="openvino")
 
 
+def test_fp16_rejected_on_cpu():
+    # the guard runs before any heavy import, so no extras are needed
+    config = ModelConfig("yolo11n", 640, 1, "fp16", "onnx")
+    for name in ("onnxruntime", "ultralytics"):
+        backend = INFERENCE_BACKENDS.create(name, device="cpu")
+        with pytest.raises(ValueError, match="--precision fp32"):
+            backend.load(config)
+
+
 def _tiny_onnx(path: Path) -> Path:
     np = pytest.importorskip("numpy")
     onnx = pytest.importorskip("onnx")
