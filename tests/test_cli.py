@@ -31,9 +31,17 @@ def test_unknown_backend_fails_cleanly():
 
 
 def test_bad_option_syntax():
-    result = runner.invoke(app, ["infer", "--device", "cpu", "-O", "provider"])
+    result = runner.invoke(
+        app, ["infer", "--device", "cpu", "--precision", "fp32", "-O", "provider"]
+    )
     assert result.exit_code == 1
     assert "KEY=VALUE" in result.output
+
+
+def test_infer_fp16_on_cpu_fails_cleanly():
+    result = runner.invoke(app, ["infer", "--device", "cpu"])
+    assert result.exit_code == 1
+    assert "--precision fp32" in result.output
 
 
 def test_decode_without_manifest(tmp_path):

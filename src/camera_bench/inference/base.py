@@ -34,7 +34,7 @@ class ModelConfig:
     batch : int
         Images per forward pass. Static engines are built for exactly this batch.
     precision : {"fp16", "fp32"}
-        Compute precision.
+        Compute precision. FP16 requires a GPU; CPU sessions always run FP32.
     format : str
         Backend-specific runtime format, e.g. ``"engine"`` for TensorRT.
     """

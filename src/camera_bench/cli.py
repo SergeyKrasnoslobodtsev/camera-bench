@@ -344,6 +344,8 @@ def infer(
     mode_list = _split(modes)
     if not set(mode_list) <= {"engine", "pipeline"} or precision not in ("fp16", "fp32"):
         raise _fail("modes must be engine/pipeline and precision fp16/fp32")
+    if device == "cpu" and precision == "fp16":
+        raise _fail("fp16 needs a GPU; on CPU pass --precision fp32")
     try:
         backend = INFERENCE_BACKENDS.create(
             backend_name, device=device, workdir=workdir, **_options(backend_options)

@@ -15,6 +15,7 @@ Execution providers
     FP16 kernels; its engines are cached in ``workdir/trt-ep``.
 ``cpu``
     CPU execution provider, for reference and for testing without a GPU.
+    FP32 only: an fp16 config is rejected with an explicit error.
 """
 
 from __future__ import annotations
@@ -183,6 +184,8 @@ class OnnxRuntimeBackend(InferenceBackend):
         """Export the model if needed and create an inference session."""
         if config.format not in self.formats:
             raise ValueError(f"format must be one of {self.formats}, got {config.format!r}")
+        if config.precision == "fp16" and self.provider == "cpu":
+            raise ValueError("fp16 needs a GPU; on CPU pass --precision fp32")
         import onnxruntime as ort
 
         path = self._onnx_path(config)
