@@ -112,3 +112,43 @@ def test_onnxruntime_cpu_end_to_end(tmp_path):
     )
     assert [row.mode for row in rows] == ["engine", "pipeline"]
     assert all(row.fps > 0 and row.calc_id is None for row in rows)
+
+
+def test_ultralytics_predict_preprocesses_without_nms():
+    # pipeline mode must feed the bare network, like the ONNX backend: no YOLO.predict,
+    # so no letterbox and no NMS in the timed call
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("cv2")
+    pytest.importorskip("ultralytics")
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from camera_bench.inference.ultralytics import UltralyticsSession
+
+    class _CaptureBackend:
+        def __init__(self):
+            self.fp16 = False
+            self.device = torch.device("cpu")
+            self.tensors = []
+
+        def __call__(self, tensor):
+            self.tensors.append(tensor.detach().cpu().numpy())
+
+    capture = _CaptureBackend()
+    model = SimpleNamespace(predictor=None)
+    model.predict = lambda frames, **kwargs: setattr(
+        model, "predictor", SimpleNamespace(model=capture)
+    )
+    config = ModelConfig("yolo11n", 32, 2, "fp32", "torch")
+    session = UltralyticsSession(model, config, "cpu")
+    frame = np.zeros((40, 48, 3), dtype=np.uint8)
+    frame[:, :] = (10, 20, 30)  # BGR; plain resize, BGR->RGB, /255, no letterbox
+    session.predict([frame, frame])
+
+    assert len(capture.tensors) == 1
+    tensor = capture.tensors[0]
+    assert tensor.shape == (2, 3, 32, 32)
+    assert tensor[0, 2, 0, 0] == pytest.approx(10 / 255)  # B channel last in RGB
+    assert tensor[0, 0, 0, 0] == pytest.approx(30 / 255)  # R channel first
+    assert session.supports_pipeline

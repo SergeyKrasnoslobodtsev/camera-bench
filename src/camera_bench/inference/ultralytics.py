@@ -68,6 +68,7 @@ class UltralyticsSession(Session):
             "batch": config.batch,
             **_precision_kwargs(config.precision == "fp16" and self._cuda),
         }
+        self._backend: Any = None
         self._tensor: Any = None
 
     def _sync(self) -> None:
@@ -75,8 +76,23 @@ class UltralyticsSession(Session):
             self._torch.cuda.synchronize()
 
     def predict(self, frames: Sequence[np.ndarray]) -> None:
-        """Run ``YOLO.predict`` on raw frames, including resize and NMS."""
-        self._model.predict(list(frames), **self._kwargs)
+        """Preprocess raw frames on the CPU and run the bare network.
+
+        Same perimeter as the ONNX Runtime backend: resize, normalisation,
+        forward pass and copies. Box decoding and NMS are not included.
+        """
+        import cv2
+        import numpy as np
+
+        self._ensure_backend()
+        np_dtype = np.float16 if getattr(self._backend, "fp16", False) else np.float32
+        size = self.config.input_size
+        batch = np.empty((len(frames), 3, size, size), dtype=np_dtype)
+        for index, frame in enumerate(frames):
+            resized = cv2.resize(frame, (size, size), interpolation=cv2.INTER_LINEAR)
+            rgb = resized[:, :, ::-1].transpose(2, 0, 1)
+            batch[index] = rgb.astype(np_dtype) / np_dtype(255)
+        self._backend(self._torch.from_numpy(batch).to(self._backend.device))
         self._sync()
 
     def infer(self) -> None:
@@ -86,22 +102,24 @@ class UltralyticsSession(Session):
         self._backend(self._tensor)
         self._sync()
 
-    def _prepare_tensor(self) -> None:
+    def _ensure_backend(self) -> None:
         # The predictor builds an AutoBackend on first use; reuse it for bare forwards.
         if getattr(self._model, "predictor", None) is None:
             import numpy as np
 
             size = self.config.input_size
             blank = np.zeros((size, size, 3), dtype=np.uint8)
-            self.predict([blank] * self.config.batch)
+            self._model.predict([blank] * self.config.batch, **self._kwargs)
         self._backend = self._model.predictor.model
-        device = self._backend.device
+
+    def _prepare_tensor(self) -> None:
+        self._ensure_backend()
         dtype = (
             self._torch.float16 if getattr(self._backend, "fp16", False) else self._torch.float32
         )
         size = self.config.input_size
         self._tensor = self._torch.rand(
-            (self.config.batch, 3, size, size), device=device, dtype=dtype
+            (self.config.batch, 3, size, size), device=self._backend.device, dtype=dtype
         )
 
     def close(self) -> None:

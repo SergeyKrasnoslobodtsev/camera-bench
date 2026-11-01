@@ -76,7 +76,10 @@ class Session(ABC):
         """
 
     def predict(self, frames: Sequence[np.ndarray]) -> None:
-        """Run the full pipeline on raw frames: preprocess, forward, post-process.
+        """Run the pipeline on raw frames: preprocess, forward pass, copies.
+
+        Box decoding and NMS are model-specific and are not included, so every
+        backend measures the same perimeter.
 
         Parameters
         ----------
