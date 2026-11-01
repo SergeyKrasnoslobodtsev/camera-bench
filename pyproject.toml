@@ -30,6 +30,9 @@ ultralytics = [
 ]
 tensorrt = [
     "tensorrt>=10",
+    # Ultralytics 8.4 asks for modelopt at TensorRT export time; without it
+    # its auto-installer runs and fails on the +cuNNN torch local version.
+    "nvidia-modelopt[onnx]>=0.44",
 ]
 
 [project.scripts]
