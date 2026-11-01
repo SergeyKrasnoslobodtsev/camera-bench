@@ -24,7 +24,13 @@ from camera_bench.inference import INFERENCE_BACKENDS, ModelConfig
 from camera_bench.inference import BackendUnavailableError as InferenceUnavailable
 from camera_bench.inference.runner import measure_session
 from camera_bench.media import FFmpegError, encoder_works, ffmpeg_version, hwaccels
-from camera_bench.reference import CATALOG_MODELS, NVDEC_FPS, RESOLUTIONS, parse_resolution
+from camera_bench.reference import (
+    CATALOG_MODELS,
+    NVDEC_FPS,
+    RESOLUTIONS,
+    Resolution,
+    parse_resolution,
+)
 from camera_bench.registry import UnknownBackendError
 from camera_bench.results import console, print_table, write_csv
 
@@ -50,6 +56,17 @@ def _ints(value: str) -> list[int]:
         return [int(item) for item in _split(value)]
     except ValueError:
         raise typer.BadParameter(f"expected comma-separated integers, got {value!r}") from None
+
+
+def _resolution(value: str) -> Resolution:
+    try:
+        return parse_resolution(value)
+    except ValueError as exc:
+        raise _fail(str(exc)) from exc
+
+
+def _resolutions(value: str) -> list[Resolution]:
+    return [_resolution(item) for item in _split(value)]
 
 
 def _fail(message: str) -> typer.Exit:
@@ -122,11 +139,7 @@ def prepare(
     encoder: Annotated[str, typer.Option(help="auto, nvenc or cpu.")] = "auto",
 ) -> None:
     """Encode camera-like clips: fixed GOP, no B-frames, CBR at the calculator bitrate."""
-    sizes = (
-        list(RESOLUTIONS)
-        if resolutions == "all"
-        else [parse_resolution(item) for item in _split(resolutions)]
-    )
+    sizes = list(RESOLUTIONS) if resolutions == "all" else _resolutions(resolutions)
     codec_list = _split(codecs)
     if not set(codec_list) <= {"h264", "h265"} or encoder not in ("auto", "nvenc", "cpu"):
         raise _fail("codecs must be h264/h265 and encoder auto/nvenc/cpu")
@@ -229,9 +242,7 @@ def decode(
 
     wanted_codecs = set(_split(codecs))
     wanted_sizes = (
-        None
-        if resolutions == "all"
-        else {parse_resolution(item).label for item in _split(resolutions)}
+        None if resolutions == "all" else {item.label for item in _resolutions(resolutions)}
     )
     clips = [
         clip
@@ -442,7 +453,7 @@ def _frames(frame_size: str, image: Path | None, count: int) -> list[object]:
         if frame is None:
             raise _fail(f"cannot read image {image}")
     else:
-        size = parse_resolution(frame_size)
+        size = _resolution(frame_size)
         rng = np.random.default_rng(0)
         frame = rng.integers(0, 256, (size.height, size.width, 3), dtype=np.uint8)
     return [frame.copy() for _ in range(count)]

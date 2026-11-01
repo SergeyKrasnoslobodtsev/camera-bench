@@ -44,6 +44,40 @@ def test_infer_fp16_on_cpu_fails_cleanly():
     assert "--precision fp32" in result.output
 
 
+def test_prepare_bad_resolution_fails_cleanly(tmp_path):
+    result = runner.invoke(app, ["prepare", "-r", "abc", "--out", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "error:" in result.output
+
+
+def test_decode_bad_resolution_fails_cleanly(tmp_path):
+    _write_manifest(tmp_path, ["h264"])
+    result = runner.invoke(
+        app, ["decode", "-b", "flaky-test", "--clips", str(tmp_path), "-r", "abc"]
+    )
+    assert result.exit_code == 1
+    assert "error:" in result.output
+
+
+def test_infer_bad_frame_size_fails_cleanly(tmp_path):
+    result = runner.invoke(
+        app,
+        [
+            "infer",
+            "--device",
+            "cpu",
+            "--precision",
+            "fp32",
+            "--frame-size",
+            "abc",
+            "--workdir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 1
+    assert "error:" in result.output
+
+
 def test_decode_without_manifest(tmp_path):
     result = runner.invoke(app, ["decode", "-b", "ffmpeg-cpu", "--clips", str(tmp_path)])
     assert result.exit_code == 1
