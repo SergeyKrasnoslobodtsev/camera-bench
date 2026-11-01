@@ -35,7 +35,9 @@ def write_csv(rows: Sequence[Any], path: Path, *, append: bool = True) -> Path:
         Output file. Parent directories are created.
     append : bool, default True
         Append to an existing file so several runs collect in one table. The header
-        is written only when the file is new or empty.
+        is written only when the file is new or empty. When appending to a
+        non-empty file, the row fields must match the existing header exactly,
+        in name and order, or a ValueError is raised.
 
     Returns
     -------
@@ -47,8 +49,16 @@ def write_csv(rows: Sequence[Any], path: Path, *, append: bool = True) -> Path:
     records = [_as_dict(row) for row in rows]
     path.parent.mkdir(parents=True, exist_ok=True)
     new_file = not append or not path.exists() or path.stat().st_size == 0
+    fieldnames = list(records[0])
+    if not new_file:
+        with path.open(newline="", encoding="utf-8") as handle:
+            header = next(csv.reader(handle), None)
+        if header != fieldnames:
+            raise ValueError(
+                f"fields {fieldnames} do not match the existing header {header} in {path}"
+            )
     with path.open("a" if append else "w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(records[0]))
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
         if new_file:
             writer.writeheader()
         writer.writerows(records)
