@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -152,3 +153,12 @@ def test_ultralytics_predict_preprocesses_without_nms():
     assert tensor[0, 2, 0, 0] == pytest.approx(10 / 255)  # B channel last in RGB
     assert tensor[0, 0, 0, 0] == pytest.approx(30 / 255)  # R channel first
     assert session.supports_pipeline
+
+
+def test_preprocess_pool_is_shared_and_order_preserving():
+    from camera_bench.inference.base import preprocess_pool
+
+    pool = preprocess_pool()
+    assert pool is preprocess_pool()  # one pool per process, reused by sessions
+    assert pool._max_workers == (os.process_cpu_count() or 1)
+    assert list(pool.map(lambda x: x * 2, range(32))) == [x * 2 for x in range(32)]
