@@ -374,7 +374,9 @@ def infer(
     names = [model.weights for model in CATALOG_MODELS] if models == "catalog" else _split(models)
     frames = _frames(frame_size, image, max(_ints(batches))) if "pipeline" in mode_list else None
     gpu = _gpu_name(device)
-    device_index = 0 if device == "cpu" else int(device)
+    if device != "cpu" and device_info(int(device)) is None:
+        raise _fail(f"GPU {device} not found")
+    device_index = None if device == "cpu" else int(device)
 
     rows = []
     for name in names:

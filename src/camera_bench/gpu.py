@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from types import TracebackType
+from typing import Any
 
 __all__ = ["DeviceInfo", "GpuMonitor", "GpuSample", "device_info"]
 
@@ -54,16 +56,16 @@ class GpuSample:
     ----------
     t : float
         ``time.perf_counter()`` at sampling.
-    memory_used_mb : float
-        Device memory in use, MiB.
-    gpu_util, decoder_util : int
-        SM and NVDEC utilization, percent.
+    memory_used_mb : float or None
+        Device memory in use, MiB; ``None`` when the NVML query failed.
+    gpu_util, decoder_util : int or None
+        SM and NVDEC utilization, percent; ``None`` when the query failed.
     """
 
     t: float
-    memory_used_mb: float
-    gpu_util: int
-    decoder_util: int
+    memory_used_mb: float | None
+    gpu_util: int | None
+    decoder_util: int | None
 
 
 def device_info(index: int = 0) -> DeviceInfo | None:
@@ -105,8 +107,8 @@ class GpuMonitor:
 
     Parameters
     ----------
-    index : int, default 0
-        NVML device index.
+    index : int or None, default 0
+        NVML device index; ``None`` disables telemetry entirely, e.g. for CPU runs.
     interval : float, default 0.2
         Seconds between samples.
 
@@ -117,7 +119,7 @@ class GpuMonitor:
     >>> monitor.peak_memory_mb()         # doctest: +SKIP
     """
 
-    index: int = 0
+    index: int | None = 0
     interval: float = 0.2
     samples: list[GpuSample] = field(default_factory=list, init=False)
     _since: float = field(default=0.0, init=False)
@@ -127,13 +129,17 @@ class GpuMonitor:
     @property
     def available(self) -> bool:
         """Whether NVML telemetry is collected."""
-        return _NVML
+        return _NVML and self.index is not None
 
     def __enter__(self) -> GpuMonitor:
-        if _NVML:
+        if not self.available:
+            return self
+        try:
             self._handle = pynvml.nvmlDeviceGetHandleByIndex(self.index)
-            self._thread = threading.Thread(target=self._loop, daemon=True)
-            self._thread.start()
+        except pynvml.NVMLError as exc:
+            raise ValueError(f"GPU {self.index} is not available: {exc}") from exc
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
         return self
 
     def __exit__(
@@ -152,38 +158,52 @@ class GpuMonitor:
 
     def snapshot_memory_mb(self) -> float | None:
         """Read device memory in use right now, MiB."""
-        if not _NVML:
+        if not self.available:
             return None
-        handle = pynvml.nvmlDeviceGetHandleByIndex(self.index)
-        return pynvml.nvmlDeviceGetMemoryInfo(handle).used / 2**20
+        try:
+            handle = pynvml.nvmlDeviceGetHandleByIndex(self.index)
+            return pynvml.nvmlDeviceGetMemoryInfo(handle).used / 2**20
+        except pynvml.NVMLError as exc:
+            raise ValueError(f"GPU {self.index} is not available: {exc}") from exc
 
     def _window(self) -> list[GpuSample]:
         return [sample for sample in self.samples if sample.t >= self._since]
 
     def peak_memory_mb(self) -> float | None:
         """Highest memory use in the current window, MiB."""
-        window = self._window()
-        return max(sample.memory_used_mb for sample in window) if window else None
+        window = [s.memory_used_mb for s in self._window() if s.memory_used_mb is not None]
+        return max(window) if window else None
 
     def mean_decoder_util(self) -> float | None:
         """Mean NVDEC utilization in the current window, percent."""
-        window = self._window()
-        return sum(s.decoder_util for s in window) / len(window) if window else None
+        window = [s.decoder_util for s in self._window() if s.decoder_util is not None]
+        return sum(window) / len(window) if window else None
 
     def mean_gpu_util(self) -> float | None:
         """Mean SM utilization in the current window, percent."""
-        window = self._window()
-        return sum(s.gpu_util for s in window) / len(window) if window else None
+        window = [s.gpu_util for s in self._window() if s.gpu_util is not None]
+        return sum(window) / len(window) if window else None
 
     def _loop(self) -> None:
         while not self._stop.is_set():
-            try:
-                memory = pynvml.nvmlDeviceGetMemoryInfo(self._handle)
-                util = pynvml.nvmlDeviceGetUtilizationRates(self._handle)
-                decoder, _ = pynvml.nvmlDeviceGetDecoderUtilization(self._handle)
-            except pynvml.NVMLError:
-                break
-            self.samples.append(
-                GpuSample(time.perf_counter(), memory.used / 2**20, util.gpu, decoder)
+            sample = GpuSample(
+                time.perf_counter(),
+                self._query(lambda: pynvml.nvmlDeviceGetMemoryInfo(self._handle).used / 2**20),
+                self._query(lambda: pynvml.nvmlDeviceGetUtilizationRates(self._handle).gpu),
+                self._query(lambda: pynvml.nvmlDeviceGetDecoderUtilization(self._handle)[0]),
             )
+            if (
+                sample.memory_used_mb is None
+                and sample.gpu_util is None
+                and sample.decoder_util is None
+            ):
+                break  # the handle is dead; nothing left to sample
+            self.samples.append(sample)
             self._stop.wait(self.interval)
+
+    @staticmethod
+    def _query(call: Callable[[], Any]) -> Any:
+        try:
+            return call()
+        except pynvml.NVMLError:
+            return None
