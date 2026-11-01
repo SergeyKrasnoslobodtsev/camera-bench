@@ -154,7 +154,7 @@ def measure_session(
     warmup: int = 20,
     iters: int = 200,
     tflops: float | None = None,
-    device_index: int = 0,
+    device_index: int | None = 0,
 ) -> list[InferRow]:
     """Load one configuration and time it in the requested modes.
 
@@ -174,8 +174,9 @@ def measure_session(
         Untimed and timed calls per mode.
     tflops : float, optional
         FP16 Tensor dense TFLOPS of this GPU, enables the calculator prediction.
-    device_index : int, default 0
-        NVML index of the GPU, for memory readings.
+    device_index : int or None, default 0
+        NVML index of the GPU, for memory readings; ``None`` disables GPU
+        telemetry, e.g. for CPU sessions.
 
     Returns
     -------
