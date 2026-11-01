@@ -6,8 +6,10 @@ Two modes are measured for every configuration:
     Bare forward pass on a preprocessed batch already on the GPU. This is what the
     Ultralytics latency table reports and what the calculator scales.
 ``pipeline``
-    Raw camera frames in, boxes out: resize and normalisation, forward pass and
-    NMS. This is closer to what a video analytics server actually spends.
+    Raw camera frames in, raw network outputs out: resize and normalisation on
+    the host, forward pass and copies to and from the device. Box decoding and
+    NMS are not included, so both backends measure the same perimeter. This is
+    closer to what a video analytics server actually spends.
 """
 
 from __future__ import annotations
