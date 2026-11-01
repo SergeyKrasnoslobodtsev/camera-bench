@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
@@ -12,9 +14,32 @@ from typing import TYPE_CHECKING, ClassVar, Literal
 if TYPE_CHECKING:
     import numpy as np
 
-__all__ = ["BackendUnavailableError", "InferenceBackend", "ModelConfig", "Precision", "Session"]
+__all__ = [
+    "BackendUnavailableError",
+    "InferenceBackend",
+    "ModelConfig",
+    "Precision",
+    "Session",
+    "preprocess_pool",
+]
 
 Precision = Literal["fp16", "fp32"]
+
+_preprocess_pool: ThreadPoolExecutor | None = None
+
+
+def preprocess_pool() -> ThreadPoolExecutor:
+    """Shared thread pool for host-side frame preprocessing.
+
+    Sized to the CPU count, like the worker pool of a video analytics server, so
+    ``pipeline`` mode times preprocessing running in parallel across frames.
+    """
+    global _preprocess_pool
+    if _preprocess_pool is None:
+        _preprocess_pool = ThreadPoolExecutor(
+            max_workers=os.process_cpu_count() or 1, thread_name_prefix="preprocess"
+        )
+    return _preprocess_pool
 
 
 class BackendUnavailableError(RuntimeError):
@@ -78,6 +103,7 @@ class Session(ABC):
     def predict(self, frames: Sequence[np.ndarray]) -> None:
         """Run the pipeline on raw frames: preprocess, forward pass, copies.
 
+        Preprocessing runs in parallel threads, as a server's workers do.
         Box decoding and NMS are model-specific and are not included, so every
         backend measures the same perimeter.
 

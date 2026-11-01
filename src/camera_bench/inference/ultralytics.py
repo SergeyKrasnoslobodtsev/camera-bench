@@ -19,6 +19,7 @@ from camera_bench.inference.base import (
     InferenceBackend,
     ModelConfig,
     Session,
+    preprocess_pool,
 )
 from camera_bench.reference import find_model
 
@@ -76,7 +77,7 @@ class UltralyticsSession(Session):
             self._torch.cuda.synchronize()
 
     def predict(self, frames: Sequence[np.ndarray]) -> None:
-        """Preprocess raw frames on the CPU and run the bare network.
+        """Preprocess raw frames on the CPU in parallel and run the bare network.
 
         Same perimeter as the ONNX Runtime backend: resize, normalisation,
         forward pass and copies. Box decoding and NMS are not included.
@@ -87,11 +88,13 @@ class UltralyticsSession(Session):
         self._ensure_backend()
         np_dtype = np.float16 if getattr(self._backend, "fp16", False) else np.float32
         size = self.config.input_size
-        batch = np.empty((len(frames), 3, size, size), dtype=np_dtype)
-        for index, frame in enumerate(frames):
+
+        def preprocess(frame):
             resized = cv2.resize(frame, (size, size), interpolation=cv2.INTER_LINEAR)
             rgb = resized[:, :, ::-1].transpose(2, 0, 1)
-            batch[index] = rgb.astype(np_dtype) / np_dtype(255)
+            return rgb.astype(np_dtype) / np_dtype(255)
+
+        batch = np.stack(list(preprocess_pool().map(preprocess, frames)))
         self._backend(self._torch.from_numpy(batch).to(self._backend.device))
         self._sync()
 

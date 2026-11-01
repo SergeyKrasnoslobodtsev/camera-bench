@@ -29,6 +29,7 @@ from camera_bench.inference.base import (
     InferenceBackend,
     ModelConfig,
     Session,
+    preprocess_pool,
 )
 from camera_bench.reference import find_model
 
@@ -94,16 +95,18 @@ class OnnxRuntimeSession(Session):
         self._session.run_with_iobinding(self._binding)
 
     def predict(self, frames: Sequence[np.ndarray]) -> None:
-        """Preprocess raw frames on the CPU and run the graph with host copies."""
+        """Preprocess raw frames on the CPU in parallel and run the graph with host copies."""
         import cv2
 
         np = self._np
         size = self.config.input_size
-        batch = np.empty((len(frames), 3, size, size), dtype=self._dtype)
-        for index, frame in enumerate(frames):
+
+        def preprocess(frame):
             resized = cv2.resize(frame, (size, size), interpolation=cv2.INTER_LINEAR)
             rgb = resized[:, :, ::-1].transpose(2, 0, 1)
-            batch[index] = rgb.astype(self._dtype) / self._dtype(255)
+            return rgb.astype(self._dtype) / self._dtype(255)
+
+        batch = np.stack(list(preprocess_pool().map(preprocess, frames)))
         self._session.run(None, {self._input_name: batch})
 
     def close(self) -> None:
